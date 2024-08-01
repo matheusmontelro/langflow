@@ -3,6 +3,7 @@ import {
   LANGFLOW_API_TOKEN,
   LANGFLOW_AUTO_LOGIN_OPTION,
 } from "@/constants/constants";
+import { useGetCheckQuery } from "@/controllers/API/queries/store";
 import useAuthStore from "@/stores/authStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { createContext, useEffect, useState } from "react";
@@ -40,10 +41,9 @@ export function AuthProvider({ children }): React.ReactElement {
   const [apiKey, setApiKey] = useState<string | null>(
     cookies.get(LANGFLOW_API_TOKEN),
   );
+  useGetCheckQuery();
 
   const getFoldersApi = useFolderStore((state) => state.getFoldersApi);
-
-  const checkHasStore = useStoreStore((state) => state.checkHasStore);
   const fetchApiData = useStoreStore((state) => state.fetchApiData);
   const setAllFlows = useFlowsManagerStore((state) => state.setAllFlows);
   const setSelectedFolder = useFolderStore((state) => state.setSelectedFolder);
@@ -73,8 +73,6 @@ export function AuthProvider({ children }): React.ReactElement {
         const isSuperUser = user!.is_superuser;
         useAuthStore.getState().setIsAdmin(isSuperUser);
         getFoldersApi(true, true);
-
-        checkHasStore();
         fetchApiData();
       })
       .catch((error) => {
