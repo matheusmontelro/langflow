@@ -12,6 +12,7 @@ import {
 } from "@/controllers/API/queries/auth";
 import { useGetProfilePicturesQuery } from "@/controllers/API/queries/files";
 import useAuthStore from "@/stores/authStore";
+import { useIsFetching } from "@tanstack/react-query";
 import { cloneDeep } from "lodash";
 import { useContext, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -46,8 +47,20 @@ export const GeneralPage = () => {
   const { userData, setUserData } = useContext(AuthContext);
   const hasStore = useStoreStore((state) => state.hasStore);
   const validApiKey = useStoreStore((state) => state.validApiKey);
+
+  const isFetchingPost =
+    useIsFetching({
+      queryKey: ["usePostAddApiKey"],
+      exact: false,
+    }) > 0;
+  const isFetchingGet =
+    useIsFetching({
+      queryKey: ["useGetCheckApiKeysQuery"],
+      exact: false,
+    }) > 0;
+  const loadingApiKey = isFetchingGet || isFetchingPost;
+
   const hasApiKey = useStoreStore((state) => state.hasApiKey);
-  const loadingApiKey = useStoreStore((state) => state.loadingApiKey);
   const { password, cnfPassword, profilePicture, apikey } = inputState;
   const autoLogin = useAuthStore((state) => state.autoLogin);
 

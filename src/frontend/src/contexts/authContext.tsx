@@ -3,6 +3,7 @@ import {
   LANGFLOW_API_TOKEN,
   LANGFLOW_AUTO_LOGIN_OPTION,
 } from "@/constants/constants";
+import { useGetCheckApiKeysQuery } from "@/controllers/API/queries/store";
 import useAuthStore from "@/stores/authStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { createContext, useEffect, useState } from "react";
@@ -44,9 +45,9 @@ export function AuthProvider({ children }): React.ReactElement {
   const getFoldersApi = useFolderStore((state) => state.getFoldersApi);
 
   const checkHasStore = useStoreStore((state) => state.checkHasStore);
-  const fetchApiData = useStoreStore((state) => state.fetchApiData);
   const setAllFlows = useFlowsManagerStore((state) => state.setAllFlows);
   const setSelectedFolder = useFolderStore((state) => state.setSelectedFolder);
+  const { refetch: fetchApiData } = useGetCheckApiKeysQuery();
   const setIsAuthenticated = useAuthStore((state) => state.setIsAuthenticated);
   const setIsAdmin = useAuthStore((state) => state.setIsAdmin);
   const setIsLoading = useFlowsManagerStore((state) => state.setIsLoading);
