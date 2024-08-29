@@ -23,6 +23,7 @@ import { removeCountFromString } from "../../../../utils/utils";
 import DisclosureComponent from "../DisclosureComponent";
 import ParentDisclosureComponent from "../ParentDisclosureComponent";
 import SidebarDraggableComponent from "./sideBarDraggableComponent";
+import { SidebarFilterComponent } from "./sidebarFilterComponent";
 import { sortKeys } from "./utils";
 import sensitiveSort from "./utils/sensitive-sort";
 
@@ -31,6 +32,7 @@ export default function ExtraSidebar(): JSX.Element {
   const templates = useTypesStore((state) => state.templates);
   const getFilterEdge = useFlowStore((state) => state.getFilterEdge);
   const setFilterEdge = useFlowStore((state) => state.setFilterEdge);
+  const filterType = useFlowStore((state) => state.filterType);
 
   const setErrorData = useAlertStore((state) => state.setErrorData);
   const [dataFilter, setFilterData] = useState(data);
@@ -226,8 +228,18 @@ export default function ExtraSidebar(): JSX.Element {
       <Separator />
       <div className="side-bar-components-div-arrangement">
         <div className="parent-disclosure-arrangement">
-          <div className="flex items-center gap-4 align-middle">
-            <span className="parent-disclosure-title">Components</span>
+          <div className="flex w-full flex-col items-start justify-between gap-2.5">
+            <span className="text-sm font-medium">Components</span>
+            {filterType && (
+              <SidebarFilterComponent
+                isInput={!!filterType.source}
+                type={filterType.type}
+                resetFilters={() => {
+                  setFilterEdge([]);
+                  setFilterData(data);
+                }}
+              />
+            )}
           </div>
         </div>
         {Object.keys(dataFilter)

@@ -1,30 +1,33 @@
-import { TOOLTIP_EMPTY } from "../../../../constants/constants";
-import useFlowStore from "../../../../stores/flowStore";
-import { useTypesStore } from "../../../../stores/typesStore";
-import { NodeType } from "../../../../types/flow";
-import { groupByFamily } from "../../../../utils/utils";
-import TooltipRenderComponent from "../tooltipRenderComponent";
-
-export default function HandleTooltips({
-  left,
+export default function HandleTooltipComponent({
+  isInput,
   tooltipTitle,
+  color,
 }: {
-  left: boolean;
-  nodes: NodeType[];
+  isInput: boolean;
+  color: string;
   tooltipTitle: string;
 }) {
-  const myData = useTypesStore((state) => state.data);
-  const nodes = useFlowStore((state) => state.nodes);
+  return (
+    <div className="py-1.5">
+      <div className="flex items-start gap-1">
+        <span className="mr-1">{isInput ? "Input" : "Output"}: </span>
+        <div
+          className="rounded-md px-2 pb-0.5 pt-0.5 text-xs text-background"
+          style={{ backgroundColor: color }}
+        >
+          {tooltipTitle}
+        </div>
+      </div>
 
-  let groupedObj: any = groupByFamily(myData, tooltipTitle!, left, nodes!);
-
-  if (groupedObj && groupedObj.length > 0) {
-    //@ts-ignore
-    return groupedObj.map((item, index) => {
-      return <TooltipRenderComponent index={index} item={item} left={left} />;
-    });
-  } else {
-    //@ts-ignore
-    return <span data-testid={`empty-tooltip-filter`}>{TOOLTIP_EMPTY}</span>;
-  }
+      <div className="mt-2 flex flex-col gap-0.5 text-xs text-muted-foreground">
+        <div>
+          <b>Drag</b> to connect compatible {!isInput ? "inputs" : "outputs"}
+        </div>
+        <div>
+          <b>Select</b> to filter compatible {!isInput ? "inputs" : "outputs"}{" "}
+          and components
+        </div>
+      </div>
+    </div>
+  );
 }
