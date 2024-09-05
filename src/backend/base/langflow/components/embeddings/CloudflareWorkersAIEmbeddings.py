@@ -30,7 +30,7 @@ class CloudflareWorkersAIEmbeddingsComponent(LCModelComponent):
             display_name="Model Name",
             info="List of supported models https://developers.cloudflare.com/workers-ai/models/#text-embeddings",
             required=True,
-            value="@cf/baai/bge-base-en-v1.5"
+            value="@cf/baai/bge-base-en-v1.5",
         ),
         BoolInput(
             name="strip_new_lines",
