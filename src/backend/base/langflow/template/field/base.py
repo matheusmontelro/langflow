@@ -1,9 +1,9 @@
+from collections.abc import Callable
 from enum import Enum
 from typing import GenericAlias  # type: ignore
 from typing import _GenericAlias  # type: ignore
 from typing import _UnionGenericAlias  # type: ignore
 from typing import Any
-from collections.abc import Callable
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_serializer, model_validator
 
@@ -180,6 +180,9 @@ class Output(BaseModel):
     value: Any | None = Field(default=UNDEFINED)
 
     cache: bool = Field(default=True)
+
+    required_inputs: list[str] | None = Field(default=None)
+    """List of required inputs for this output."""
 
     def to_dict(self):
         return self.model_dump(by_alias=True, exclude_none=True)

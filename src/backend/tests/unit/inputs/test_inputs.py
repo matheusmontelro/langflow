@@ -20,8 +20,8 @@ from langflow.inputs.inputs import (
     SecretStrInput,
     StrInput,
     TableInput,
-    instantiate_input,
 )
+from langflow.inputs.utils import instantiate_input
 from langflow.schema.message import Message
 
 
