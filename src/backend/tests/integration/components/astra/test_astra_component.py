@@ -1,7 +1,6 @@
 import os
 
 from astrapy.db import AstraDB
-from langflow.components.output_parsers.CSVOutputParser import CSVOutputParserComponent
 import pytest
 
 from langflow.components.embeddings import OpenAIEmbeddingsComponent
