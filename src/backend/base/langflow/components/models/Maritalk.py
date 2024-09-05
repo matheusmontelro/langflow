@@ -40,7 +40,7 @@ class MaritalkModelComponent(LCModelComponent):
             info="The parser to use to parse the output of the model",
             advanced=True,
             input_types=["OutputParser"],
-        )
+        ),
     ]
 
     def build_model(self) -> LanguageModel:  # type: ignore[type-var]
