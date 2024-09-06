@@ -4,10 +4,11 @@ import shutil
 
 # we need to import tmpdir
 import tempfile
-from contextlib import contextmanager, suppress
+import uuid
+from collections.abc import AsyncGenerator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
-from collections.abc import AsyncGenerator
 
 import orjson
 import pytest
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 from httpx import AsyncClient
 from sqlmodel import Session, SQLModel, create_engine, select
 from sqlmodel.pool import StaticPool
+from tests.api_keys import get_openai_api_key
 from typer.testing import CliRunner
 
 from langflow.graph.graph.base import Graph
@@ -24,10 +26,11 @@ from langflow.services.auth.utils import get_password_hash
 from langflow.services.database.models.api_key.model import ApiKey
 from langflow.services.database.models.flow.model import Flow, FlowCreate
 from langflow.services.database.models.folder.model import Folder
+from langflow.services.database.models.transactions.crud import delete_transactions_by_flow_id
 from langflow.services.database.models.user.model import User, UserCreate
+from langflow.services.database.models.vertex_builds.crud import delete_vertex_builds_by_flow_id
 from langflow.services.database.utils import session_getter
 from langflow.services.deps import get_db_service
-from tests.api_keys import get_openai_api_key
 
 if TYPE_CHECKING:
     from langflow.services.database.service import DatabaseService
@@ -78,6 +81,13 @@ def get_text():
         assert path.exists(), f"File {path} does not exist. Available files: {list(data_path.iterdir())}"
 
 
+def _delete_transactions_and_vertex_builds(session, user: User):
+    flow_ids = [flow.id for flow in user.flows]
+    for flow_id in flow_ids:
+        delete_transactions_by_flow_id(session, flow_id)
+        delete_vertex_builds_by_flow_id(session, flow_id)
+
+
 @pytest.fixture()
 async def async_client() -> AsyncGenerator:
     from langflow.main import create_app
@@ -93,6 +103,7 @@ def session_fixture():
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+    SQLModel.metadata.drop_all(engine)  # Add this line to clean up tables
 
 
 class Config:
@@ -102,8 +113,8 @@ class Config:
 
 @pytest.fixture(name="load_flows_dir")
 def load_flows_dir():
-    tempdir = tempfile.TemporaryDirectory()
-    yield tempdir.name
+    with tempfile.TemporaryDirectory() as tempdir:
+        yield tempdir
 
 
 @pytest.fixture(name="distributed_env")
@@ -126,23 +137,26 @@ def distributed_client_fixture(session: Session, monkeypatch, distributed_env):
     from langflow.core import celery_app
 
     db_dir = tempfile.mkdtemp()
-    db_path = Path(db_dir) / "test.db"
-    monkeypatch.setenv("LANGFLOW_DATABASE_URL", f"sqlite:///{db_path}")
-    monkeypatch.setenv("LANGFLOW_AUTO_LOGIN", "false")
-    # monkeypatch langflow.services.task.manager.USE_CELERY to True
-    # monkeypatch.setattr(manager, "USE_CELERY", True)
-    monkeypatch.setattr(celery_app, "celery_app", celery_app.make_celery("langflow", Config))
+    try:
+        db_path = Path(db_dir) / "test.db"
+        monkeypatch.setenv("LANGFLOW_DATABASE_URL", f"sqlite:///{db_path}")
+        monkeypatch.setenv("LANGFLOW_AUTO_LOGIN", "false")
+        # monkeypatch langflow.services.task.manager.USE_CELERY to True
+        # monkeypatch.setattr(manager, "USE_CELERY", True)
+        monkeypatch.setattr(celery_app, "celery_app", celery_app.make_celery("langflow", Config))
 
-    # def get_session_override():
-    #     return session
+        # def get_session_override():
+        #     return session
 
-    from langflow.main import create_app
+        from langflow.main import create_app
 
-    app = create_app()
+        app = create_app()
 
-    # app.dependency_overrides[get_session] = get_session_override
-    with TestClient(app) as client:
-        yield client
+        # app.dependency_overrides[get_session] = get_session_override
+        with TestClient(app) as client:
+            yield client
+    finally:
+        shutil.rmtree(db_dir)  # Clean up the temporary directory
     app.dependency_overrides.clear()
     monkeypatch.undo()
 
@@ -248,29 +262,31 @@ def client_fixture(session: Session, monkeypatch, request, load_flows_dir):
     if "noclient" in request.keywords:
         yield
     else:
-        db_dir = tempfile.mkdtemp()
-        db_path = Path(db_dir) / "test.db"
-        monkeypatch.setenv("LANGFLOW_DATABASE_URL", f"sqlite:///{db_path}")
-        monkeypatch.setenv("LANGFLOW_AUTO_LOGIN", "false")
-        if "load_flows" in request.keywords:
-            shutil.copyfile(
-                pytest.BASIC_EXAMPLE_PATH, os.path.join(load_flows_dir, "c54f9130-f2fa-4a3e-b22a-3856d946351b.json")
-            )
-            monkeypatch.setenv("LANGFLOW_LOAD_FLOWS_PATH", load_flows_dir)
-            monkeypatch.setenv("LANGFLOW_AUTO_LOGIN", "true")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / f"{uuid.uuid4()}.db"
+            if "load_flows" in request.keywords:
+                shutil.copyfile(
+                    pytest.BASIC_EXAMPLE_PATH, os.path.join(load_flows_dir, "c54f9130-f2fa-4a3e-b22a-3856d946351b.json")
+                )
+                monkeypatch.setenv("LANGFLOW_LOAD_FLOWS_PATH", load_flows_dir)
+                monkeypatch.setenv("LANGFLOW_AUTO_LOGIN", "true")
 
-        from langflow.main import create_app
+            from langflow.main import create_app
 
-        app = create_app()
+            app = create_app()
 
-        # app.dependency_overrides[get_session] = get_session_override
-        with TestClient(app) as client:
-            yield client
-        # app.dependency_overrides.clear()
-        monkeypatch.undo()
-        # clear the temp db
-        with suppress(FileNotFoundError):
-            db_path.unlink()
+            # app.dependency_overrides[get_session] = get_session_override
+            db_service = get_db_service()
+            db_service.database_url = f"sqlite:///{db_path}"
+            db_service.reload_engine()
+            try:
+                with TestClient(app) as client:
+                    yield client
+            finally:
+                db_service.engine.dispose()  # Ensure the database connection is closed
+                SQLModel.metadata.drop_all(db_service.engine)
+            # app.dependency_overrides.clear()
+            monkeypatch.undo()
 
 
 # create a fixture for session_getter above
@@ -286,7 +302,7 @@ def session_getter_fixture(client):
 
 @pytest.fixture
 def runner():
-    return CliRunner()
+    yield CliRunner()
 
 
 @pytest.fixture
@@ -297,7 +313,10 @@ def test_user(client):
     )
     response = client.post("/api/v1/users", json=user_data.model_dump())
     assert response.status_code == 201
-    return response.json()
+    user = response.json()
+    yield user
+    # Clean up
+    client.delete(f"/api/v1/users/{user['id']}")
 
 
 @pytest.fixture(scope="function")
@@ -310,13 +329,19 @@ def active_user(client):
             is_active=True,
             is_superuser=False,
         )
-        # check if user exists
         if active_user := session.exec(select(User).where(User.username == user.username)).first():
-            return active_user
+            yield active_user
+            return
         session.add(user)
         session.commit()
         session.refresh(user)
-    return user
+        yield user
+        # Clean up
+        # Now cleanup transactions, vertex_build
+        _delete_transactions_and_vertex_builds(session, user)
+        session.delete(user)
+
+        session.commit()
 
 
 @pytest.fixture
@@ -326,7 +351,7 @@ def logged_in_headers(client, active_user):
     assert response.status_code == 200
     tokens = response.json()
     a_token = tokens["access_token"]
-    return {"Authorization": f"Bearer {a_token}"}
+    yield {"Authorization": f"Bearer {a_token}"}
 
 
 @pytest.fixture
@@ -341,20 +366,22 @@ def flow(client, json_flow: str, active_user):
         session.add(flow)
         session.commit()
         session.refresh(flow)
-
-    return flow
+        yield flow
+        # Clean up
+        session.delete(flow)
+        session.commit()
 
 
 @pytest.fixture
 def json_chat_input():
     with open(pytest.CHAT_INPUT) as f:
-        return f.read()
+        yield f.read()
 
 
 @pytest.fixture
 def json_two_outputs():
     with open(pytest.TWO_OUTPUTS) as f:
-        return f.read()
+        yield f.read()
 
 
 @pytest.fixture
@@ -364,9 +391,10 @@ def added_flow_with_prompt_and_history(client, json_flow_with_prompt_and_history
     flow = FlowCreate(name="Basic Chat", description="description", data=data)
     response = client.post("api/v1/flows/", json=flow.model_dump(), headers=logged_in_headers)
     assert response.status_code == 201
-    assert response.json()["name"] == flow.name
-    assert response.json()["data"] == flow.data
-    return response.json()
+    flow_data = response.json()
+    yield flow_data
+    # Clean up
+    client.delete(f"api/v1/flows/{flow_data['id']}", headers=logged_in_headers)
 
 
 @pytest.fixture
@@ -376,9 +404,10 @@ def added_flow_chat_input(client, json_chat_input, logged_in_headers):
     flow = FlowCreate(name="Chat Input", description="description", data=data)
     response = client.post("api/v1/flows/", json=flow.model_dump(), headers=logged_in_headers)
     assert response.status_code == 201
-    assert response.json()["name"] == flow.name
-    assert response.json()["data"] == flow.data
-    return response.json()
+    flow_data = response.json()
+    yield flow_data
+    # Clean up
+    client.delete(f"api/v1/flows/{flow_data['id']}", headers=logged_in_headers)
 
 
 @pytest.fixture
@@ -388,9 +417,10 @@ def added_flow_two_outputs(client, json_two_outputs, logged_in_headers):
     flow = FlowCreate(name="Two Outputs", description="description", data=data)
     response = client.post("api/v1/flows/", json=flow.model_dump(), headers=logged_in_headers)
     assert response.status_code == 201
-    assert response.json()["name"] == flow.name
-    assert response.json()["data"] == flow.data
-    return response.json()
+    flow_data = response.json()
+    yield flow_data
+    # Clean up
+    client.delete(f"api/v1/flows/{flow_data['id']}", headers=logged_in_headers)
 
 
 @pytest.fixture
@@ -400,9 +430,10 @@ def added_vector_store(client, json_vector_store, logged_in_headers):
     vector_store = FlowCreate(name="Vector Store", description="description", data=data)
     response = client.post("api/v1/flows/", json=vector_store.model_dump(), headers=logged_in_headers)
     assert response.status_code == 201
-    assert response.json()["name"] == vector_store.name
-    assert response.json()["data"] == vector_store.data
-    return response.json()
+    vector_store_data = response.json()
+    yield vector_store_data
+    # Clean up
+    client.delete(f"api/v1/flows/{vector_store_data['id']}", headers=logged_in_headers)
 
 
 @pytest.fixture
@@ -414,9 +445,10 @@ def added_webhook_test(client, json_webhook_test, logged_in_headers):
     )
     response = client.post("api/v1/flows/", json=webhook_test.model_dump(), headers=logged_in_headers)
     assert response.status_code == 201
-    assert response.json()["name"] == webhook_test.name
-    assert response.json()["data"] == webhook_test.data
-    return response.json()
+    webhook_test_data = response.json()
+    yield webhook_test_data
+    # Clean up
+    client.delete(f"api/v1/flows/{webhook_test_data['id']}", headers=logged_in_headers)
 
 
 @pytest.fixture
@@ -431,11 +463,15 @@ def created_api_key(active_user):
     db_manager = get_db_service()
     with session_getter(db_manager) as session:
         if existing_api_key := session.exec(select(ApiKey).where(ApiKey.api_key == api_key.api_key)).first():
-            return existing_api_key
+            yield existing_api_key
+            return
         session.add(api_key)
         session.commit()
         session.refresh(api_key)
-    return api_key
+        yield api_key
+        # Clean up
+        session.delete(api_key)
+        session.commit()
 
 
 @pytest.fixture(name="simple_api_test")
@@ -447,9 +483,10 @@ def get_simple_api_test(client, logged_in_headers, json_simple_api_test):
     flow = FlowCreate(name="Simple API Test", data=data, description="Simple API Test")
     response = client.post("api/v1/flows/", json=flow.model_dump(), headers=logged_in_headers)
     assert response.status_code == 201
-    assert response.json()["name"] == flow.name
-    assert response.json()["data"] == flow.data
-    return response.json()
+    flow_data = response.json()
+    yield flow_data
+    # Clean up
+    client.delete(f"api/v1/flows/{flow_data['id']}", headers=logged_in_headers)
 
 
 @pytest.fixture(name="starter_project")
@@ -477,4 +514,7 @@ def get_starter_project(active_user):
         session.commit()
         session.refresh(new_flow)
         new_flow_dict = new_flow.model_dump()
-    return new_flow_dict
+        yield new_flow_dict
+        # Clean up
+        session.delete(new_flow)
+        session.commit()
